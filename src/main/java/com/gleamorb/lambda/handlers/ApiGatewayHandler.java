@@ -4,11 +4,15 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import com.gleamorb.lambda.models.EmailDestination;
+import com.gleamorb.lambda.repositories.EmailDestinationRepository;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Main Lambda handler for API Gateway requests
@@ -17,6 +21,7 @@ import java.util.Map;
 public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
     
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private final EmailDestinationRepository repository = new EmailDestinationRepository();
     
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
@@ -55,52 +60,124 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
     
     private APIGatewayProxyResponseEvent handleRegistration(APIGatewayProxyRequestEvent input, 
                                                          APIGatewayProxyResponseEvent response) {
-        // TODO: Implement actual registration logic with database
-        Map<String, String> result = new HashMap<>();
-        result.put("status", "success");
-        result.put("message", "Registration successful");
-        result.put("requestBody", input.getBody());
+        Map<String, Object> result = new HashMap<>();
         
-        response.setStatusCode(201); // Created
+        try {
+            // Parse the request body into EmailDestination object
+            EmailDestination emailDestination = gson.fromJson(input.getBody(), EmailDestination.class);
+            
+            // Generate a UUID for the new record
+            emailDestination.setId(UUID.randomUUID().toString());
+            
+            // Save to database
+            boolean success = repository.create(emailDestination);
+            
+            if (success) {
+                result.put("status", "success");
+                result.put("message", "Registration successful");
+                result.put("id", emailDestination.getId());
+                response.setStatusCode(201); // Created
+            } else {
+                result.put("status", "error");
+                result.put("message", "Failed to register email destination");
+                response.setStatusCode(500); // Internal Server Error
+            }
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("message", "Error processing request: " + e.getMessage());
+            response.setStatusCode(400); // Bad Request
+        }
+        
         response.setBody(gson.toJson(result));
         return response;
     }
     
     private APIGatewayProxyResponseEvent handleEdit(APIGatewayProxyRequestEvent input, 
                                                  APIGatewayProxyResponseEvent response) {
-        // TODO: Implement actual edit logic with database
-        Map<String, String> result = new HashMap<>();
-        result.put("status", "success");
-        result.put("message", "Edit successful");
-        result.put("requestBody", input.getBody());
+        Map<String, Object> result = new HashMap<>();
         
-        response.setStatusCode(200); // OK
+        try {
+            // Parse the request body into EmailDestination object
+            EmailDestination emailDestination = gson.fromJson(input.getBody(), EmailDestination.class);
+            
+            // Update in database
+            boolean success = repository.update(emailDestination);
+            
+            if (success) {
+                result.put("status", "success");
+                result.put("message", "Edit successful");
+                result.put("id", emailDestination.getId());
+                response.setStatusCode(200); // OK
+            } else {
+                result.put("status", "error");
+                result.put("message", "Failed to update email destination or record not found");
+                response.setStatusCode(404); // Not Found
+            }
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("message", "Error processing request: " + e.getMessage());
+            response.setStatusCode(400); // Bad Request
+        }
+        
         response.setBody(gson.toJson(result));
         return response;
     }
     
     private APIGatewayProxyResponseEvent handleDelete(APIGatewayProxyRequestEvent input, 
                                                    APIGatewayProxyResponseEvent response) {
-        // TODO: Implement actual delete logic with database
-        String pathParam = input.getPathParameters() != null ? 
-                           input.getPathParameters().get("id") : "unknown";
+        Map<String, Object> result = new HashMap<>();
         
-        Map<String, String> result = new HashMap<>();
-        result.put("status", "success");
-        result.put("message", "Delete successful for ID: " + pathParam);
+        try {
+            // Get the ID from path parameters
+            String id = input.getPathParameters() != null ? 
+                       input.getPathParameters().get("id") : null;
+            
+            if (id == null || id.isEmpty()) {
+                result.put("status", "error");
+                result.put("message", "Missing ID parameter");
+                response.setStatusCode(400); // Bad Request
+                response.setBody(gson.toJson(result));
+                return response;
+            }
+            
+            // Delete from database
+            boolean success = repository.delete(id);
+            
+            if (success) {
+                result.put("status", "success");
+                result.put("message", "Delete successful for ID: " + id);
+                response.setStatusCode(200); // OK
+            } else {
+                result.put("status", "error");
+                result.put("message", "Failed to delete email destination or record not found");
+                response.setStatusCode(404); // Not Found
+            }
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("message", "Error processing request: " + e.getMessage());
+            response.setStatusCode(500); // Internal Server Error
+        }
         
-        response.setStatusCode(200); // OK
         response.setBody(gson.toJson(result));
         return response;
     }
     
     private APIGatewayProxyResponseEvent handleList(APIGatewayProxyResponseEvent response) {
-        // TODO: Implement actual listing logic with database
-        Map<String, String> result = new HashMap<>();
-        result.put("status", "success");
-        result.put("data", "[]"); // Placeholder for actual data
+        Map<String, Object> result = new HashMap<>();
         
-        response.setStatusCode(200); // OK
+        try {
+            // Get all records from database
+            List<EmailDestination> destinations = repository.findAll();
+            
+            result.put("status", "success");
+            result.put("data", destinations);
+            response.setStatusCode(200); // OK
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("message", "Error retrieving email destinations: " + e.getMessage());
+            response.setStatusCode(500); // Internal Server Error
+        }
+        
         response.setBody(gson.toJson(result));
         return response;
     }

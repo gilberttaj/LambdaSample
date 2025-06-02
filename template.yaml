@@ -14,7 +14,7 @@ Globals:
       - x86_64
     Environment:
       Variables:
-        DB_URL: !Sub 'jdbc:mysql://${DBHost}:${DBPort}/${DBName}'
+        DB_URL: !Sub 'jdbc:postgresql://${DBHost}:${DBPort}/${DBName}'
         DB_USER: !Ref DBUser
         DB_PASSWORD: !Ref DBPassword
 
@@ -22,7 +22,7 @@ Parameters:
   DBHost:
     Type: String
     Description: RDS Host name
-    Default: localhost
+    Default: host.docker.internal
   DBPort:
     Type: String
     Description: RDS Port
@@ -53,7 +53,7 @@ Resources:
   ApiGatewayFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: .
+      CodeUri: target/lambda-app-1.0-SNAPSHOT.jar
       Handler: com.gleamorb.lambda.handlers.ApiGatewayHandler::handleRequest
       Policies:
         - AWSLambdaBasicExecutionRole

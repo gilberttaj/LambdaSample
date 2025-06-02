@@ -13,7 +13,7 @@ public class DatabaseConnectionManager {
     private static final Logger logger = Logger.getLogger(DatabaseConnectionManager.class.getName());
     
     // Default local development environment
-    private static final String LOCAL_DB_URL = "jdbc:postgresql://localhost:5432/gleamorb_db";
+    private static final String LOCAL_DB_URL = "jdbc:postgresql://host.docker.internal:5432/gleamorb_db";
     private static final String LOCAL_DB_USER = "postgres";
     private static final String LOCAL_DB_PASSWORD = "password";
     
@@ -52,6 +52,9 @@ public class DatabaseConnectionManager {
         try {
             // Load the JDBC driver
             Class.forName("org.postgresql.Driver");
+            
+            // Log connection attempt
+            logger.info("Attempting to connect to database with URL: " + dbUrl);
             
             // Create and return the connection
             return DriverManager.getConnection(dbUrl, dbUser, dbPassword);
