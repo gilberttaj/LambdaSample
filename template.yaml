@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  GleamOrb Lambda Application
+  
+  SAM Template for Lambda functions to handle email destination management
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: java17
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        DB_URL: !Sub 'jdbc:mysql://${DBHost}:${DBPort}/${DBName}'
+        DB_USER: !Ref DBUser
+        DB_PASSWORD: !Ref DBPassword
+
+Parameters:
+  DBHost:
+    Type: String
+    Description: RDS Host name
+    Default: localhost
+  DBPort:
+    Type: String
+    Description: RDS Port
+    Default: "5432"
+  DBName:
+    Type: String
+    Description: Database name
+    Default: gleamorb_db
+  DBUser:
+    Type: String
+    Description: Database username
+    Default: postgres
+  DBPassword:
+    Type: String
+    Description: Database password
+    NoEcho: true
+    Default: password
+  Stage:
+    Type: String
+    Description: Deployment stage
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+  ApiGatewayFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: com.gleamorb.lambda.handlers.ApiGatewayHandler::handleRequest
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - VPCAccessPolicy: {}
+      Events:
+        RegisterEmailDestination:
+          Type: Api
+          Properties:
+            Path: /api/email-destinations/register
+            Method: post
+        EditEmailDestination:
+          Type: Api
+          Properties:
+            Path: /api/email-destinations/edit
+            Method: put
+        DeleteEmailDestination:
+          Type: Api
+          Properties:
+            Path: /api/email-destinations/delete/{id}
+            Method: delete
+        ListEmailDestination:
+          Type: Api
+          Properties:
+            Path: /api/email-destinations/list
+            Method: get
+      Tags:
+        Application: GleamOrb
+        Environment: !Ref Stage
+
+Outputs:
+  ApiGatewayFunction:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt ApiGatewayFunction.Arn
+  ApiGatewayFunctionRole:
+    Description: "Implicit IAM Role created for the Lambda function"
+    Value: !GetAtt ApiGatewayFunctionRole.Arn
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/api/"
