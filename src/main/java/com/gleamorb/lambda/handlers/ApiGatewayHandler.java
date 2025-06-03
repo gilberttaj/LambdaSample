@@ -38,7 +38,7 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
             // Route the request based on HTTP method and path
             if ("POST".equals(httpMethod) && path.contains("/register")) {
                 return handleRegistration(input, response);
-            } else if ("PUT".equals(httpMethod) && path.contains("/edit")) {
+            } else if ("PUT".equals(httpMethod) && path.contains("/edit/")) {
                 return handleEdit(input, response);
             } else if ("DELETE".equals(httpMethod) && path.contains("/delete")) {
                 return handleDelete(input, response);
@@ -97,8 +97,23 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
         Map<String, Object> result = new HashMap<>();
         
         try {
+            // Get the ID from path parameters
+            String id = input.getPathParameters() != null ? 
+                      input.getPathParameters().get("id") : null;
+            
+            if (id == null || id.isEmpty()) {
+                result.put("status", "error");
+                result.put("message", "Missing ID parameter");
+                response.setStatusCode(400); // Bad Request
+                response.setBody(gson.toJson(result));
+                return response;
+            }
+            
             // Parse the request body into EmailDestination object
             EmailDestination emailDestination = gson.fromJson(input.getBody(), EmailDestination.class);
+            
+            // Ensure the ID from the path is used
+            emailDestination.setId(id);
             
             // Update in database
             boolean success = repository.update(emailDestination);

@@ -28,7 +28,7 @@ project-root/
 - Maven
 - AWS CLI
 - AWS SAM CLI
-- Docker (optional, for local testing)
+- Docker (for local testing)
 - PostgreSQL (for local development)
 
 ## Local Development Setup

@@ -53,7 +53,7 @@ Resources:
   ApiGatewayFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: target/lambda-app-1.0-SNAPSHOT.jar
+      CodeUri: ./
       Handler: com.gleamorb.lambda.handlers.ApiGatewayHandler::handleRequest
       Policies:
         - AWSLambdaBasicExecutionRole
@@ -64,21 +64,29 @@ Resources:
           Properties:
             Path: /api/email-destinations/register
             Method: post
+            Auth:
+              AuthorizationType: NONE
         EditEmailDestination:
           Type: Api
           Properties:
-            Path: /api/email-destinations/edit
+            Path: /api/email-destinations/edit/{id}
             Method: put
+            Auth:
+              AuthorizationType: NONE
         DeleteEmailDestination:
           Type: Api
           Properties:
             Path: /api/email-destinations/delete/{id}
             Method: delete
+            Auth:
+              AuthorizationType: NONE
         ListEmailDestination:
           Type: Api
           Properties:
             Path: /api/email-destinations/list
             Method: get
+            Auth:
+              AuthorizationType: NONE
       Tags:
         Application: GleamOrb
         Environment: !Ref Stage
