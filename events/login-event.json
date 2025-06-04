@@ -1,0 +1,10 @@
+{
+  "httpMethod": "POST",
+  "path": "/auth/login",
+  "queryStringParameters": null,
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"username\":\"newuser\",\"password\":\"Password123!\"}",
+  "isBase64Encoded": false
+}

@@ -1,0 +1,13 @@
+{
+  "httpMethod": "GET",
+  "path": "/auth/mock-token",
+  "queryStringParameters": {
+    "username": "testuser",
+    "email": "testuser@example.com"
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": null,
+  "isBase64Encoded": false
+}

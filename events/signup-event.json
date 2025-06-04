@@ -1,0 +1,10 @@
+{
+  "httpMethod": "POST",
+  "path": "/auth/signup",
+  "queryStringParameters": null,
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"username\":\"newuser\",\"password\":\"Password123!\",\"email\":\"user@example.com\",\"firstName\":\"John\",\"lastName\":\"Doe\"}",
+  "isBase64Encoded": false
+}

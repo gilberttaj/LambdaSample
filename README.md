@@ -113,6 +113,27 @@ DB_PASSWORD=password
 mvn clean package
 ```
 
+## Authentication with AWS Cognito
+
+This application uses AWS Cognito for authentication and authorization. The following endpoints are available for authentication:
+
+- `POST /auth/signup` - Register a new user
+- `POST /auth/login` - Login and get JWT tokens
+- `GET /auth/mock-token` - Generate a mock JWT token for local testing
+
+### Authentication Flow
+
+1. Users register using the `/auth/signup` endpoint with the following fields:
+   - `email`: Email address (required)
+   - `password`: User's password (required)
+   - `username`: Username (required)
+   - `firstName`: User's first name (optional)
+   - `lastName`: User's last name (optional)
+2. Users login using the `/auth/login` endpoint to get JWT tokens
+3. Users include the JWT token in the `Authorization` header for subsequent requests
+4. The API Gateway authenticates requests using Cognito User Pool authorizer
+5. Lambda functions validate the JWT token before processing requests
+
 ## Local Testing with SAM
 
 1. Build with SAM:
@@ -125,9 +146,30 @@ mvn clean package
    sam local start-api
    ```
 
-3. Test your endpoints:
+3. Get a mock token for testing (when running locally):
    ```
-   curl -X POST http://localhost:3000/api/email-destinations/register -d '{...your JSON data...}' -H "Content-Type: application/json"
+   curl http://localhost:3000/auth/mock-token?username=testuser&email=test@example.com
+   ```
+
+4. Use the mock token to authenticate API requests:
+   ```
+   curl -X POST http://localhost:3000/api/email-destinations/register -d '{...your JSON data...}' -H "Content-Type: application/json" -H "Authorization: Bearer YOUR_MOCK_TOKEN"
+   ```
+
+### Testing Auth Endpoints Locally
+
+1. Test signup (local environment will simulate success):
+   ```
+   curl -X POST http://localhost:3000/auth/signup \
+     -H "Content-Type: application/json" \
+     -d '{"username":"newuser","password":"Password123!","email":"user@example.com"}'
+   ```
+
+2. Test login (local environment will return a mock token):
+   ```
+   curl -X POST http://localhost:3000/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"newuser","password":"Password123!"}'
    ```
 
 ## Deployment
@@ -145,7 +187,7 @@ Follow the prompts to complete the deployment.
 - AWS Lambda - For serverless computing
 - Amazon RDS - For database storage
 - Amazon API Gateway - For REST API endpoints
-- AWS Cognito - For authentication (to be implemented)
+- AWS Cognito - For authentication and authorization
 - AWS AppRunner - For web UI (separate repository)
 
 ## Architecture

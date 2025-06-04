@@ -4,6 +4,9 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.gleamorb.lambda.auth.AuthenticationService;
+import com.gleamorb.lambda.auth.AuthenticationService.AuthenticationException;
 import com.gleamorb.lambda.models.EmailDestination;
 import com.gleamorb.lambda.repositories.EmailDestinationRepository;
 import com.google.gson.Gson;
@@ -22,6 +25,7 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
     
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private final EmailDestinationRepository repository = new EmailDestinationRepository();
+    private final AuthenticationService authService = new AuthenticationService();
     
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
@@ -35,6 +39,13 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
         response.setHeaders(getResponseHeaders());
         
         try {
+            // Authenticate the request
+            String authHeader = input.getHeaders() != null ? input.getHeaders().get("Authorization") : null;
+            DecodedJWT jwt = authService.validateToken(authHeader);
+            
+            // Log the authenticated user
+            String username = jwt.getClaim("cognito:username").asString();
+            context.getLogger().log("Authenticated user: " + username);
             // Route the request based on HTTP method and path
             if ("POST".equals(httpMethod) && path.contains("/register")) {
                 return handleRegistration(input, response);
@@ -50,6 +61,15 @@ public class ApiGatewayHandler implements RequestHandler<APIGatewayProxyRequestE
                 response.setBody("Not Found: " + path);
                 return response;
             }
+        } catch (AuthenticationException e) {
+            // Return 401 for authentication failures
+            context.getLogger().log("Authentication failed: " + e.getMessage());
+            response.setStatusCode(401);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("status", "error");
+            errorResponse.put("message", "Authentication failed: " + e.getMessage());
+            response.setBody(gson.toJson(errorResponse));
+            return response;
         } catch (Exception e) {
             context.getLogger().log("Error processing request: " + e.getMessage());
             response.setStatusCode(500);
