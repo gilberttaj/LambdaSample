@@ -19,7 +19,15 @@ Globals:
         DB_PASSWORD: !Ref DBPassword
         COGNITO_USER_POOL_ID: !Ref CognitoUserPool
         COGNITO_APP_CLIENT_ID: !Ref CognitoUserPoolClient
+        COGNITO_APP_CLIENT_SECRET: !Ref GoogleClientSecret
         COGNITO_REGION: !Ref AWS::Region
+        COGNITO_DOMAIN_NAME: nais
+        APP_REDIRECT_URL: http://localhost:5173/auth/google/callback
+  Api:
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
 
 Parameters:
   DBHost:
@@ -32,6 +40,10 @@ Parameters:
     Default: "5432"
   DBName:
     Type: String
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth Client Secret
+    NoEcho: true
     Description: Database name
     Default: gleamorb_db
   DBUser:
@@ -51,6 +63,15 @@ Parameters:
       - dev
       - staging
       - prod
+  GoogleClientId:
+    Type: String
+    Description: Google Client ID
+    Default: ''
+  GoogleClientSecret:
+    Type: String
+    Description: Google Client Secret
+    NoEcho: true
+    Default: ''
 
 Resources:
   # Cognito User Pool
@@ -86,6 +107,7 @@ Resources:
           Required: false
       # We'll store original username in the user attributes through the code
       # Custom attributes will be managed through API calls directly
+      
   # Cognito User Pool Client
   CognitoUserPoolClient:
     Type: AWS::Cognito::UserPoolClient
@@ -99,6 +121,22 @@ Resources:
         - ALLOW_REFRESH_TOKEN_AUTH
         - ALLOW_USER_SRP_AUTH
       PreventUserExistenceErrors: ENABLED
+      # Add OAuth configurations
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      CallbackURLs:
+        - http://localhost:5173/auth/google/callback  # For local development
+      LogoutURLs:
+        - http://localhost:5173  # For local development
+      SupportedIdentityProviders:
+        - COGNITO
+        - Google
       
   # Cognito Authorizer - commented out for local testing
   # Uncomment for deployment to AWS
@@ -133,24 +171,34 @@ Resources:
                 - cognito-idp:InitiateAuth
               Resource: !GetAtt CognitoUserPool.Arn
       Events:
-        SignUp:
+        SignupAPI:
           Type: Api
           Properties:
             Path: /auth/signup
             Method: post
-            Auth:
-              AuthorizationType: NONE
-        Login:
+        LoginAPI:
           Type: Api
           Properties:
             Path: /auth/login
             Method: post
-            Auth:
-              AuthorizationType: NONE
-        MockToken:
+        MockTokenAPI:
           Type: Api
           Properties:
             Path: /auth/mock-token
+            Method: get
+            Auth:
+              AuthorizationType: NONE
+        GoogleAuthAPI:
+          Type: Api
+          Properties:
+            Path: /auth/google
+            Method: get
+            Auth:
+              AuthorizationType: NONE
+        GoogleCallbackAPI:
+          Type: Api
+          Properties:
+            Path: /auth/google/callback
             Method: get
             Auth:
               AuthorizationType: NONE

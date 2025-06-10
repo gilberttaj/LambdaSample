@@ -9,12 +9,24 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
 import software.amazon.awssdk.services.cognitoidentityprovider.model.*;
-
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Base64;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 
 /**
  * Handler for authentication endpoints (signup, login, mock-token)
@@ -85,6 +97,7 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
         
         APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
         response.setHeaders(getResponseHeaders());
+        response.setStatusCode(200); // Set default status code
         
         try {
             // Route the request based on path
@@ -94,18 +107,24 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
                 return handleLogin(input, response, context);
             } else if ("GET".equals(httpMethod) && path.contains("/auth/mock-token")) {
                 return handleMockToken(input, response, context);
+            } else if ("GET".equals(httpMethod) && path.contains("/auth/google/callback")) {
+                return handleGoogleCallback(input, response, context);
+            } else if ("GET".equals(httpMethod) && path.contains("/auth/google") && !path.contains("/callback")) {
+                return handleGoogleAuth(input, response, context);
             } else {
                 response.setStatusCode(404);
                 response.setBody("Not Found: " + path);
                 return response;
             }
         } catch (Exception e) {
-            context.getLogger().log("Error processing request: " + e.getMessage());
+            e.printStackTrace();
+            context.getLogger().log("Error handling request: " + e.getMessage());
             response.setStatusCode(500);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("status", "error");
-            errorResponse.put("message", "Internal Server Error: " + e.getMessage());
-            response.setBody(gson.toJson(errorResponse));
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("message", "Internal server error: " + e.getMessage());
+            responseBody.put("path", path);
+            responseBody.put("method", httpMethod);
+            response.setBody(gson.toJson(responseBody));
             return response;
         }
     }
@@ -422,8 +441,325 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
         Map<String, String> headers = new HashMap<>();
         headers.put("Content-Type", "application/json");
         headers.put("Access-Control-Allow-Origin", "*");
-        headers.put("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        headers.put("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
         headers.put("Access-Control-Allow-Headers", "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token");
         return headers;
+    }
+    
+    /**
+     * Generate a code verifier for PKCE (Proof Key for Code Exchange)
+     * The code verifier should be a random string of between 43 and 128 characters
+     */
+    private String generateCodeVerifier() {
+        SecureRandom secureRandom = new SecureRandom();
+        byte[] codeVerifier = new byte[32];
+        secureRandom.nextBytes(codeVerifier);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier);
+    }
+    
+    /**
+     * Generate a code challenge from the code verifier using S256
+     * @param codeVerifier The code verifier to generate challenge from
+     * @return Base64URL encoded SHA-256 hash of the code verifier
+     */
+    private String generateCodeChallenge(String codeVerifier) {
+        try {
+            byte[] bytes = codeVerifier.getBytes("US-ASCII");
+            MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+            messageDigest.update(bytes, 0, bytes.length);
+            byte[] digest = messageDigest.digest();
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+    
+    /**
+     * Initiates Google authentication
+     */
+    private APIGatewayProxyResponseEvent handleGoogleAuth(APIGatewayProxyRequestEvent input, 
+                                                      APIGatewayProxyResponseEvent response, 
+                                                      Context context) {
+        try {
+            if (isLocalEnvironment) {
+                // For local development, redirect to Google OAuth flow (would be handled by your frontend)
+                // This is a mock URL that simulates what would happen in production
+                String localRedirectUrl = "http://localhost:5173/auth/google/callback?code=LOCAL_DEV_CODE";
+                
+                Map<String, Object> responseBody = new HashMap<>();
+                responseBody.put("status", "success");
+                responseBody.put("redirectUrl", localRedirectUrl);
+                
+                response.setStatusCode(200); // Return 200 instead of 302 to avoid CORS issues
+                response.setHeaders(getResponseHeaders());
+                response.setBody(gson.toJson(responseBody));
+                return response;
+            }
+            
+            // Get Cognito domain URL - using the fixed domain
+            String cognitoDomainUrl = "https://nais.auth.ap-northeast-1.amazoncognito.com";
+            
+            // Generate PKCE code verifier and challenge
+            String codeVerifier = generateCodeVerifier();
+            String codeChallenge = generateCodeChallenge(codeVerifier);
+            
+            // Generate a state that contains the code verifier (in a real app, store this securely)
+            // We'll encode the code verifier in the state and retrieve it in the callback
+            String state = Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier.getBytes());
+            context.getLogger().log("State with code verifier: " + state);
+            context.getLogger().log("Code verifier: " + codeVerifier);
+            
+            // Construct the redirect URL to Cognito's OAuth endpoint with Google as the provider
+            // Include PKCE parameters required by Cognito and state to pass the code verifier
+            String redirectUrl = String.format("%s/oauth2/authorize?response_type=code&client_id=%s" +
+                    "&redirect_uri=%s&identity_provider=Google&scope=email+openid+profile" +
+                    "&code_challenge=%s&code_challenge_method=S256&state=%s",
+                    cognitoDomainUrl,
+                    appClientId,
+                    java.net.URLEncoder.encode("http://localhost:5173/auth/google/callback", "UTF-8"),
+                    codeChallenge,
+                    java.net.URLEncoder.encode(state, "UTF-8"));
+            
+            // Return the redirect URL in the response body instead of doing a 302 redirect
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("status", "success");
+            responseBody.put("redirectUrl", redirectUrl);
+            
+            response.setStatusCode(200); // Use 200 instead of 302 to avoid CORS issues
+            response.setHeaders(getResponseHeaders()); // Use standard CORS headers
+            response.setBody(gson.toJson(responseBody));
+            return response;
+        } catch (Exception e) {
+            context.getLogger().log("Error initiating Google auth: " + e.getMessage());
+            response.setStatusCode(500);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("status", "error");
+            errorResponse.put("message", "Failed to initiate Google authentication: " + e.getMessage());
+            response.setBody(gson.toJson(errorResponse));
+            return response;
+        }
+    }
+    
+    /**
+     * Handles the callback from Google OAuth flow
+     */
+    private APIGatewayProxyResponseEvent handleGoogleCallback(APIGatewayProxyRequestEvent input, 
+                                                     APIGatewayProxyResponseEvent response, 
+                                                     Context context) {
+        try {
+            context.getLogger().log("Received Google callback: " + input.toString());
+            context.getLogger().log("Query parameters: " + (input.getQueryStringParameters() != null ? input.getQueryStringParameters().toString() : "null"));
+            
+            Map<String, String> queryParams = input.getQueryStringParameters();
+            if (queryParams == null) {
+                queryParams = new HashMap<>();
+            }
+            
+            // Try to get auth code from multiple possible locations
+            String authCode = null;
+            
+            // First check the query parameters
+            if (queryParams.containsKey("code")) {
+                authCode = queryParams.get("code");
+            }
+            
+            // If not found, check path parameters
+            if ((authCode == null || authCode.isEmpty()) && input.getPathParameters() != null) {
+                Map<String, String> pathParams = input.getPathParameters();
+                if (pathParams.containsKey("code")) {
+                    authCode = pathParams.get("code");
+                }
+            }
+            
+            // If still not found, check multi-value query parameters
+            if ((authCode == null || authCode.isEmpty()) && input.getMultiValueQueryStringParameters() != null) {
+                Map<String, java.util.List<String>> multiValueParams = input.getMultiValueQueryStringParameters();
+                if (multiValueParams.containsKey("code") && !multiValueParams.get("code").isEmpty()) {
+                    authCode = multiValueParams.get("code").get(0);
+                }
+            }
+            
+            // Check if we have a valid auth code now
+            if (authCode == null || authCode.trim().isEmpty()) {
+                response.setStatusCode(400);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "error");
+                errorResponse.put("message", "No authorization code provided");
+                response.setBody(gson.toJson(errorResponse));
+                return response;
+            }
+            
+            // Extract the state parameter which contains our encoded code verifier
+            String state = queryParams.get("state");
+            String codeVerifier = null;
+            
+            if (state != null && !state.isEmpty()) {
+                try {
+                    // Decode the state to get the code verifier
+                    codeVerifier = new String(Base64.getUrlDecoder().decode(state));
+                    context.getLogger().log("Extracted code verifier from state: " + codeVerifier);
+                } catch (Exception e) {
+                    context.getLogger().log("Error decoding state parameter: " + e.getMessage());
+                }
+            }
+            
+            // For local development, generate a mock token
+            if (isLocalEnvironment || "LOCAL_DEV_CODE".equals(authCode)) {
+                String email = queryParams.containsKey("email") ? queryParams.get("email") : "googleuser@example.com";
+                String username = email.split("@")[0]; // Extract username from email
+                
+                String mockToken = generateMockToken(username, email);
+                
+                // Return success response with mock token
+                Map<String, Object> responseBody = new HashMap<>();
+                responseBody.put("status", "success");
+                responseBody.put("message", "Google login successful (mock)");
+                responseBody.put("id_token", mockToken);
+                responseBody.put("access_token", mockToken);
+                responseBody.put("refresh_token", "mock-refresh-token");
+                responseBody.put("expires_in", 3600);
+                responseBody.put("token_type", "Bearer");
+                
+                // We can either return JSON directly or redirect to the frontend with token as a parameter
+                // For simplicity in local development, we'll just return the token as JSON
+                response.setStatusCode(200);
+                response.setBody(gson.toJson(responseBody));
+                return response;
+            }
+            
+            // Exchange the authorization code for tokens
+            Map<String, String> tokenRequest = new HashMap<>();
+            tokenRequest.put("grant_type", "authorization_code");
+            tokenRequest.put("client_id", appClientId);
+            tokenRequest.put("code", authCode);
+            
+            // Get client secret from environment variables
+            String appClientSecret = System.getenv("COGNITO_APP_CLIENT_SECRET");
+            if (appClientSecret != null && !appClientSecret.isEmpty()) {
+                tokenRequest.put("client_secret", appClientSecret);
+                context.getLogger().log("Added client_secret to token request");
+            } else {
+                context.getLogger().log("WARNING: No client_secret available in environment variables");
+            }
+            
+            // IMPORTANT: The redirect_uri must match EXACTLY what was used in the authorization request
+            // For Cognito identity provider responses, this should be the /oauth2/idpresponse endpoint
+            tokenRequest.put("redirect_uri", "https://nais.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse");
+            
+            // Log the token request parameters for debugging (hiding the client secret)
+            Map<String, String> logSafeParams = new HashMap<>(tokenRequest);
+            if (logSafeParams.containsKey("client_secret")) {
+                logSafeParams.put("client_secret", "[REDACTED]");
+            }
+            context.getLogger().log("Token request parameters: " + logSafeParams.toString());
+            
+            // Add the code_verifier for PKCE if available
+            if (codeVerifier != null) {
+                tokenRequest.put("code_verifier", codeVerifier);
+                context.getLogger().log("Added code_verifier to token request");
+            } else {
+                context.getLogger().log("WARNING: No code_verifier available for PKCE");                
+            }
+            
+            // Get Cognito domain URL
+            String cognitoDomainUrl = "https://nais.auth.ap-northeast-1.amazoncognito.com";
+                    
+            // Now exchange the auth code for tokens
+            URL tokenUrl = new URL(cognitoDomainUrl + "/oauth2/token");
+            context.getLogger().log("Token URL: " + tokenUrl.toString());
+            
+            HttpURLConnection tokenConnection = (HttpURLConnection) tokenUrl.openConnection();
+            tokenConnection.setRequestMethod("POST");
+            tokenConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            tokenConnection.setDoOutput(true);
+            
+            // According to AWS docs, we need both client_id in the body AND Authorization header
+            String clientSecret = System.getenv("COGNITO_APP_CLIENT_SECRET");
+            
+            // Add Authorization header with Basic auth if client secret is available
+            if (clientSecret != null && !clientSecret.isEmpty()) {
+                String clientAuth = appClientId + ":" + clientSecret;
+                String encodedClientAuth = Base64.getEncoder().encodeToString(clientAuth.getBytes());
+                tokenConnection.setRequestProperty("Authorization", "Basic " + encodedClientAuth);
+                context.getLogger().log("Added Authorization header with Basic auth");
+                
+                // Note: we keep client_id in body even with Authorization header, per AWS docs
+            } else {
+                context.getLogger().log("WARNING: No client_secret available in environment variables");
+            }
+            
+            StringBuilder tokenParams = new StringBuilder();
+            for (Map.Entry<String, String> entry : tokenRequest.entrySet()) {
+                if (tokenParams.length() > 0) {
+                    tokenParams.append("&");
+                }
+                tokenParams.append(entry.getKey())
+                    .append("=")
+                    .append(java.net.URLEncoder.encode(entry.getValue(), "UTF-8"));
+            }
+            
+            try (OutputStream os = tokenConnection.getOutputStream()) {
+                byte[] requestData = tokenParams.toString().getBytes("UTF-8");
+                os.write(requestData, 0, requestData.length);
+            }
+            
+            int statusCode = tokenConnection.getResponseCode();
+            
+            java.io.InputStream inputStream;
+            if (statusCode >= 400) {
+                inputStream = tokenConnection.getErrorStream();
+            } else {
+                inputStream = tokenConnection.getInputStream();
+            }
+            
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(inputStream, "UTF-8"));
+            StringBuilder responseBuilder = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                responseBuilder.append(line);
+            }
+            
+            String responseContent = responseBuilder.toString();
+            context.getLogger().log("Token endpoint response: " + responseContent);
+            
+            if (statusCode >= 400) {
+                response.setStatusCode(statusCode);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "error");
+                errorResponse.put("message", "Token exchange failed: " + responseContent);
+                response.setBody(gson.toJson(errorResponse));
+                return response;
+            }
+            
+            // Parse the JSON response
+            JsonObject tokenResponse = JsonParser.parseString(responseContent).getAsJsonObject();
+            
+            // Return success response with tokens
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("status", "success");
+            responseBody.put("message", "Google login successful");
+            responseBody.put("id_token", tokenResponse.get("id_token").getAsString());
+            responseBody.put("access_token", tokenResponse.get("access_token").getAsString());
+            if (tokenResponse.has("refresh_token")) {
+                responseBody.put("refresh_token", tokenResponse.get("refresh_token").getAsString());
+            }
+            responseBody.put("expires_in", tokenResponse.get("expires_in").getAsInt());
+            responseBody.put("token_type", tokenResponse.get("token_type").getAsString());
+            
+            response.setStatusCode(200);
+            response.setBody(gson.toJson(responseBody));
+            return response;
+        } catch (Exception e) {
+            context.getLogger().log("Error exchanging Google auth code for tokens: " + e.getMessage());
+            e.printStackTrace();
+            
+            response.setStatusCode(500);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("status", "error");
+            errorResponse.put("message", "Failed to exchange auth code for tokens: " + e.getMessage());
+            response.setBody(gson.toJson(errorResponse));
+            return response;
+        }
     }
 }
