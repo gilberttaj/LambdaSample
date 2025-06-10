@@ -481,20 +481,6 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
                                                       APIGatewayProxyResponseEvent response, 
                                                       Context context) {
         try {
-            if (isLocalEnvironment) {
-                // For local development, redirect to Google OAuth flow (would be handled by your frontend)
-                // This is a mock URL that simulates what would happen in production
-                String localRedirectUrl = "http://localhost:5173/auth/google/callback?code=LOCAL_DEV_CODE";
-                
-                Map<String, Object> responseBody = new HashMap<>();
-                responseBody.put("status", "success");
-                responseBody.put("redirectUrl", localRedirectUrl);
-                
-                response.setStatusCode(200); // Return 200 instead of 302 to avoid CORS issues
-                response.setHeaders(getResponseHeaders());
-                response.setBody(gson.toJson(responseBody));
-                return response;
-            }
             
             // Get Cognito domain URL - using the fixed domain
             String cognitoDomainUrl = "https://nais.auth.ap-northeast-1.amazoncognito.com";
@@ -516,7 +502,7 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
                     "&code_challenge=%s&code_challenge_method=S256&state=%s",
                     cognitoDomainUrl,
                     appClientId,
-                    java.net.URLEncoder.encode("http://localhost:5173/auth/google/callback", "UTF-8"),
+                    java.net.URLEncoder.encode("https://71yru8o4n5.execute-api.ap-northeast-1.amazonaws.com/Prod/auth/google/callback", "UTF-8"),
                     codeChallenge,
                     java.net.URLEncoder.encode(state, "UTF-8"));
             
@@ -545,7 +531,8 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
      */
     private APIGatewayProxyResponseEvent handleGoogleCallback(APIGatewayProxyRequestEvent input, 
                                                      APIGatewayProxyResponseEvent response, 
-                                                     Context context) {
+                                                     Context context) 
+    {
         try {
             context.getLogger().log("Received Google callback: " + input.toString());
             context.getLogger().log("Query parameters: " + (input.getQueryStringParameters() != null ? input.getQueryStringParameters().toString() : "null"));
@@ -636,15 +623,22 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
             // Get client secret from environment variables
             String appClientSecret = System.getenv("COGNITO_APP_CLIENT_SECRET");
             if (appClientSecret != null && !appClientSecret.isEmpty()) {
+                // For AWS Cognito, it's preferred to include client_secret in the body
                 tokenRequest.put("client_secret", appClientSecret);
-                context.getLogger().log("Added client_secret to token request");
+                context.getLogger().log("Added client_secret to token request body");
             } else {
                 context.getLogger().log("WARNING: No client_secret available in environment variables");
+                context.getLogger().log("Client secret is required for token exchange with Cognito");
             }
             
             // IMPORTANT: The redirect_uri must match EXACTLY what was used in the authorization request
-            // For Cognito identity provider responses, this should be the /oauth2/idpresponse endpoint
-            tokenRequest.put("redirect_uri", "https://nais.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse");
+            // For now, we know it's always the localhost URL in the initial authorization request
+            // based on the frontend code and authorization URL
+            String redirectUri = "https://71yru8o4n5.execute-api.ap-northeast-1.amazonaws.com/Prod/auth/google/callback";
+            context.getLogger().log("Using redirect URI: " + redirectUri);
+            
+            // Set the redirect URI
+            tokenRequest.put("redirect_uri", redirectUri);
             
             // Log the token request parameters for debugging (hiding the client secret)
             Map<String, String> logSafeParams = new HashMap<>(tokenRequest);
@@ -670,22 +664,22 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
             
             HttpURLConnection tokenConnection = (HttpURLConnection) tokenUrl.openConnection();
             tokenConnection.setRequestMethod("POST");
+            tokenConnection.setConnectTimeout(10000);  // 10 seconds timeout
+            tokenConnection.setReadTimeout(10000);     // 10 seconds read timeout
             tokenConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            tokenConnection.setRequestProperty("Accept", "application/json");
             tokenConnection.setDoOutput(true);
             
-            // According to AWS docs, we need both client_id in the body AND Authorization header
-            String clientSecret = System.getenv("COGNITO_APP_CLIENT_SECRET");
+            // For Cognito, client credentials in the body are generally sufficient
+            // Only add Authorization header if explicitly needed
+            String clientSecret = appClientSecret; // Use the one we already retrieved
+            boolean useBasicAuth = false; // Set to true only if needed
             
-            // Add Authorization header with Basic auth if client secret is available
-            if (clientSecret != null && !clientSecret.isEmpty()) {
+            if (useBasicAuth && clientSecret != null && !clientSecret.isEmpty()) {
                 String clientAuth = appClientId + ":" + clientSecret;
                 String encodedClientAuth = Base64.getEncoder().encodeToString(clientAuth.getBytes());
                 tokenConnection.setRequestProperty("Authorization", "Basic " + encodedClientAuth);
                 context.getLogger().log("Added Authorization header with Basic auth");
-                
-                // Note: we keep client_id in body even with Authorization header, per AWS docs
-            } else {
-                context.getLogger().log("WARNING: No client_secret available in environment variables");
             }
             
             StringBuilder tokenParams = new StringBuilder();
