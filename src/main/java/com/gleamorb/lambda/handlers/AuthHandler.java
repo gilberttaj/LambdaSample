@@ -568,12 +568,28 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
             
             // Check if we have a valid auth code now
             if (authCode == null || authCode.trim().isEmpty()) {
-                response.setStatusCode(400);
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", "error");
-                errorResponse.put("message", "No authorization code provided");
-                response.setBody(gson.toJson(errorResponse));
-                return response;
+                // Redirect to frontend with error in URL parameters
+                try {
+                    String redirectUrl = "http://localhost:5173/auth/validation?status=error&message=" + java.net.URLEncoder.encode("No authorization code provided", "UTF-8");
+                    
+                    response.setStatusCode(302); // HTTP 302 Found for redirect
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Location", redirectUrl);
+                    headers.put("Cache-Control", "no-cache, no-store, must-revalidate");
+                    headers.put("Pragma", "no-cache");
+                    headers.put("Expires", "0");
+                    response.setHeaders(headers);
+                    
+                    return response;
+                } catch (Exception e) {
+                    // If URL encoding fails, return a simple error response
+                    response.setStatusCode(400);
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("status", "error");
+                    errorResponse.put("message", "No authorization code provided");
+                    response.setBody(gson.toJson(errorResponse));
+                    return response;
+                }
             }
             
             // Extract the state parameter which contains our encoded code verifier
@@ -597,21 +613,37 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
                 
                 String mockToken = generateMockToken(username, email);
                 
-                // Return success response with mock token
-                Map<String, Object> responseBody = new HashMap<>();
-                responseBody.put("status", "success");
-                responseBody.put("message", "Google login successful (mock)");
-                responseBody.put("id_token", mockToken);
-                responseBody.put("access_token", mockToken);
-                responseBody.put("refresh_token", "mock-refresh-token");
-                responseBody.put("expires_in", 3600);
-                responseBody.put("token_type", "Bearer");
-                
-                // We can either return JSON directly or redirect to the frontend with token as a parameter
-                // For simplicity in local development, we'll just return the token as JSON
-                response.setStatusCode(200);
-                response.setBody(gson.toJson(responseBody));
-                return response;
+                // Redirect to frontend with mock tokens in URL parameters
+                try {
+                    // Build the redirect URL with token parameters
+                    StringBuilder redirectUrl = new StringBuilder("http://localhost:5173/auth/validation");
+                    redirectUrl.append("?status=success");
+                    redirectUrl.append("&message=").append(java.net.URLEncoder.encode("Google login successful (mock)", "UTF-8"));
+                    redirectUrl.append("&id_token=").append(java.net.URLEncoder.encode(mockToken, "UTF-8"));
+                    redirectUrl.append("&access_token=").append(java.net.URLEncoder.encode(mockToken, "UTF-8"));
+                    redirectUrl.append("&refresh_token=").append(java.net.URLEncoder.encode("mock-refresh-token", "UTF-8"));
+                    redirectUrl.append("&expires_in=3600");
+                    redirectUrl.append("&token_type=Bearer");
+                    
+                    // Set up redirect response
+                    response.setStatusCode(302); // HTTP 302 Found for redirect
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Location", redirectUrl.toString());
+                    headers.put("Cache-Control", "no-cache, no-store, must-revalidate");
+                    headers.put("Pragma", "no-cache");
+                    headers.put("Expires", "0");
+                    response.setHeaders(headers);
+                    
+                    return response;
+                } catch (Exception e) {
+                    context.getLogger().log("Error creating redirect URL: " + e.getMessage());
+                    response.setStatusCode(500);
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("status", "error");
+                    errorResponse.put("message", "Failed to create redirect URL: " + e.getMessage());
+                    response.setBody(gson.toJson(errorResponse));
+                    return response;
+                }
             }
             
             // Exchange the authorization code for tokens
@@ -718,42 +750,96 @@ public class AuthHandler implements RequestHandler<APIGatewayProxyRequestEvent, 
             context.getLogger().log("Token endpoint response: " + responseContent);
             
             if (statusCode >= 400) {
-                response.setStatusCode(statusCode);
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("status", "error");
-                errorResponse.put("message", "Token exchange failed: " + responseContent);
-                response.setBody(gson.toJson(errorResponse));
-                return response;
+                // Redirect to frontend with error in URL parameters
+                try {
+                    String errorMessage = "Token exchange failed: " + responseContent;
+                    String redirectUrl = "http://localhost:5173/auth/validation?status=error&message=" + java.net.URLEncoder.encode(errorMessage, "UTF-8");
+                    
+                    response.setStatusCode(302); // HTTP 302 Found for redirect
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Location", redirectUrl);
+                    headers.put("Cache-Control", "no-cache, no-store, must-revalidate");
+                    headers.put("Pragma", "no-cache");
+                    headers.put("Expires", "0");
+                    response.setHeaders(headers);
+                    
+                    return response;
+                } catch (Exception e) {
+                    // If URL encoding fails, return a simple error response
+                    response.setStatusCode(statusCode);
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("status", "error");
+                    errorResponse.put("message", "Token exchange failed: " + responseContent);
+                    response.setBody(gson.toJson(errorResponse));
+                    return response;
+                }
             }
             
             // Parse the JSON response
             JsonObject tokenResponse = JsonParser.parseString(responseContent).getAsJsonObject();
             
-            // Return success response with tokens
-            Map<String, Object> responseBody = new HashMap<>();
-            responseBody.put("status", "success");
-            responseBody.put("message", "Google login successful");
-            responseBody.put("id_token", tokenResponse.get("id_token").getAsString());
-            responseBody.put("access_token", tokenResponse.get("access_token").getAsString());
-            if (tokenResponse.has("refresh_token")) {
-                responseBody.put("refresh_token", tokenResponse.get("refresh_token").getAsString());
+            // Redirect to frontend with tokens in URL parameters
+            try {
+                // Build the redirect URL with token parameters
+                StringBuilder redirectUrl = new StringBuilder("http://localhost:5173/auth/validation");
+                redirectUrl.append("?status=success");
+                redirectUrl.append("&message=").append(java.net.URLEncoder.encode("Google login successful", "UTF-8"));
+                redirectUrl.append("&id_token=").append(java.net.URLEncoder.encode(tokenResponse.get("id_token").getAsString(), "UTF-8"));
+                redirectUrl.append("&access_token=").append(java.net.URLEncoder.encode(tokenResponse.get("access_token").getAsString(), "UTF-8"));
+                
+                if (tokenResponse.has("refresh_token")) {
+                    redirectUrl.append("&refresh_token=").append(java.net.URLEncoder.encode(tokenResponse.get("refresh_token").getAsString(), "UTF-8"));
+                }
+                
+                redirectUrl.append("&expires_in=").append(tokenResponse.get("expires_in").getAsInt());
+                redirectUrl.append("&token_type=").append(java.net.URLEncoder.encode(tokenResponse.get("token_type").getAsString(), "UTF-8"));
+                
+                // Set up redirect response
+                response.setStatusCode(302); // HTTP 302 Found for redirect
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Location", redirectUrl.toString());
+                headers.put("Cache-Control", "no-cache, no-store, must-revalidate");
+                headers.put("Pragma", "no-cache");
+                headers.put("Expires", "0");
+                response.setHeaders(headers);
+                
+                return response;
+            } catch (Exception e) {
+                context.getLogger().log("Error creating redirect URL: " + e.getMessage());
+                response.setStatusCode(500);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "error");
+                errorResponse.put("message", "Failed to create redirect URL: " + e.getMessage());
+                response.setBody(gson.toJson(errorResponse));
+                return response;
             }
-            responseBody.put("expires_in", tokenResponse.get("expires_in").getAsInt());
-            responseBody.put("token_type", tokenResponse.get("token_type").getAsString());
-            
-            response.setStatusCode(200);
-            response.setBody(gson.toJson(responseBody));
-            return response;
         } catch (Exception e) {
             context.getLogger().log("Error exchanging Google auth code for tokens: " + e.getMessage());
             e.printStackTrace();
             
-            response.setStatusCode(500);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("status", "error");
-            errorResponse.put("message", "Failed to exchange auth code for tokens: " + e.getMessage());
-            response.setBody(gson.toJson(errorResponse));
-            return response;
+            // Redirect to frontend with error in URL parameters
+            try {
+                String errorMessage = "Failed to exchange auth code for tokens: " + e.getMessage();
+                String redirectUrl = "http://localhost:5173/auth/validation?status=error&message=" + java.net.URLEncoder.encode(errorMessage, "UTF-8");
+                
+                response.setStatusCode(302); // HTTP 302 Found for redirect
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Location", redirectUrl);
+                headers.put("Cache-Control", "no-cache, no-store, must-revalidate");
+                headers.put("Pragma", "no-cache");
+                headers.put("Expires", "0");
+                response.setHeaders(headers);
+                
+                return response;
+            } catch (Exception ex) {
+                // If URL encoding fails, return a simple error response
+                response.setStatusCode(500);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "error");
+                errorResponse.put("message", "Failed to exchange auth code for tokens: " + e.getMessage());
+                response.setBody(gson.toJson(errorResponse));
+                return response;
+            }
         }
     }
 }
